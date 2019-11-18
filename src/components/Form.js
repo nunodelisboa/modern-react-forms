@@ -100,8 +100,13 @@ export default function Form ({
     if (!isFormValid && onInvalidSubmit) onInvalidSubmit();
   }, [getR, model, name, onInvalidSubmit, onValidSubmit, valid]);
 
-  // TODO reset model to initial values
-  const onReset = () => {};
+  const onReset = useCallback(() => {
+    Object.keys(registry.current).forEach(key => {
+      const { initial } = getR(key);
+      mutateModel({ type: UPDATE, name: key, value: initial });
+      mutateValid({ type: UPDATE, name: key, value: [false] });
+    });
+  }, [getR]);
 
   const validate = useCallback(
     name => {
@@ -137,7 +142,7 @@ export default function Form ({
   const formProps = useMemo(
     () =>
       parentContext ? { disabled } : { id: name, name, onSubmit, onReset, disabled, ref: formRef },
-    [disabled, name, onSubmit, parentContext]
+    [disabled, name, onReset, onSubmit, parentContext]
   );
 
   // eslint-disable-next-line no-unused-vars
