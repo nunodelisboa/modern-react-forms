@@ -16,17 +16,16 @@ import { Form } from "modern-react-forms";
 ```
 
 ```js
-function MyInput({ name, value, onChange, required }) {
-  const [inputValue, setValue, validation] = useFormInput(name, value, onChange,  required ? {
-    validations: "isRequired",
-    validationError: { isRequired: "Please specify a value for the input" } : {}
-  });
+function MyInput({ name, value, onChange, validations, validationErrors, required }) {
+  const [inputValue, setValue, validation] = useFormInput(name, value, { onSetValue: onChange,
+  validations : { ...validations, isRequired: required },
+  validationErrors : { validationErrors, ...(required ? { isRequired : 'Please specify a value' } : {} ))});
 
-  const [hasError, errorText] = validation;
+  const [hasError, errorText, validate] = validation;
 
   return (
     <div>
-      <input id={name} value={inputValue} onChange={setValue} />
+      <input id={name} value={inputValue} onChange={event => setValue(event.target.value)} />
       {hasError && <span>{errorText}</span>}
     </div>
   );

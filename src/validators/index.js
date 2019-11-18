@@ -1,7 +1,7 @@
 import * as Validators from './builtIn';
+import noError from './noError';
 
-// validations can be (a) String (name of validation) (b) an object { id, params: [], dependencies: [], validator }, (c) an array of (a) or (b)
-// (a) Can be "{name}" or  "{name}:{param1}:{param2}"
+// validations can be (a) String (name of validation) (b) an object { [id] : { params: [], dependencies: [], validator } }, (c) { [id] : Boolean }
 
 // validationErrors is an object { [name]: String } and defaults "The value is invalid"
 
@@ -11,73 +11,90 @@ export const createErrorGenerator = (spec, errs) => {
     throw new Error('Cannot parse unknown validation specification', spec);
   }
 
-  const errorGenerators = Object.entries(spec).map((key, value) =>
-    createCustomErrorGenerator(key, value, errs)
-  );
+  const errorGenerators = Object.entries(spec)
+    .map(([key, value]) => createErrorGeneratorFromObject(key, value, errs))
+    .filter(Boolean);
+
   return combineErrorGenerators(errorGenerators, errs);
 };
 
-function createCustomErrorGenerator (id, spec, errs) {
-  const { params = [], dependencies = [], validator } = spec;
+function createErrorGeneratorFromObject (id, spec, errs) {
+  if (Validators[id] != null) return createWellKnownErrorGenerator(id, [], errs);
+  if (!spec) return null;
+  if (typeof spec !== 'object') throw new Error(`Invalid validator specification for ${id}`);
 
-  if ([...new Set(dependencies)].length !== dependencies.length) {
+  const { params = [], dependencies, validator } = spec;
+  if (!validator) {
+    throw new Error(`Cannot create errorGenerator for ${id} without custom validator`);
+  }
+
+  if ([...new Set(dependencies || [])].length !== (dependencies || []).length) {
     throw new Error('Cannot specify duplicate dependencies');
   }
 
-  return {
-    errorGenerator: (value, ...deps) => {
-      const isValid = validator(value, params, deps);
-      return isValid ? [false] : [true, errs[id]];
-    },
-    dependencies
+  const errorGenerator = (value, ...deps) => {
+    const isValid = validator(value, params, deps);
+    return isValid ? [false] : [true, errs[id]];
   };
+
+  errorGenerator.$id = id;
+  errorGenerator.$dependencies = dependencies;
+
+  return errorGenerator;
+}
+
+function createWellKnownErrorGenerator (id, params = [], errs) {
+  if (Validators[id] == null) throw new Error(`Unknown validation: "${id}"`);
+
+  const errorGenerator = value => {
+    const isValid = Validators[id](value, params);
+    return isValid ? [false] : [true, errs[id]];
+  };
+
+  errorGenerator.$id = id;
+
+  return errorGenerator;
 }
 
 function createStringErrorGenerator (spec, errs) {
   const [id, ...params] = spec.split(':');
-  if (Validators[id] == null) throw new Error(`Unknown validation: "${id}"`);
-  return {
-    errorGenerator: value => {
-      const isValid = Validators[id](value, params);
-      return isValid ? [false] : [true, errs[id]];
-    },
-    dependencies: []
-  };
+  return createWellKnownErrorGenerator(id, params, errs);
 }
 
-function combineErrorGenerators (generators, errs) {
-  const [one, ...rest] = generators;
+export function noErrorGenerator () {
+  return noError;
+}
 
+export function combineErrorGenerators (generators) {
+  if (generators.length === 0) return noErrorGenerator();
+  const [one, ...rest] = generators;
   if (rest.length === 0) return one;
 
-  const { errorGenerator: errorGeneratorO, dependencies: depO } = one;
-  const { errorGenerator: errorGeneratorR, dependencies: depR } = combineErrorGenerators(
-    rest,
-    errs
-  );
+  const combinedRest = combineErrorGenerators(rest);
+  const [common, justO, justR] = combineDependencies(one.$dependencies, combinedRest.$dependencies);
 
-  const [common, justO, justR] = combineDependencies(depO, depR);
+  const errorGenerator = (value, ...deps) => {
+    const cDeps = subArray(deps, 0, common.length);
+    const oDeps = subArray(deps, common.length, justO.length);
+    const rDeps = subArray(deps, common.length + justO.length, justR.length);
 
-  return {
-    errorGenerator: (value, ...deps) => {
-      const cDeps = subArray(deps, 0, common.length);
-      const oDeps = subArray(deps, common.length, justO.length);
-      const rDeps = subArray(deps, common.length + justO.length, justR.length);
-
-      return [
-        errorGeneratorO(value, ...cDeps, ...oDeps),
-        errorGeneratorR(value, ...cDeps, ...rDeps)
-      ].reduce((acc, res) => [acc[0] && res[0], acc[1] || res[1]], [false]);
-    },
-    dependencies: [].concat(common, justO, justR)
+    return [one(value, ...cDeps, ...oDeps), combinedRest(value, ...cDeps, ...rDeps)].reduce(
+      ([cHasError, cText], [hasError, text]) => [hasError || cHasError, cText || text],
+      [false]
+    );
   };
+
+  errorGenerator.$id = [].concat(one.$id, combinedRest.$id);
+  errorGenerator.$dependencies = [].concat(common, justO, justR);
+
+  return errorGenerator;
 }
 
 function subArray (ary = [], startIndex, len = ary.length) {
   return ary.slice(startIndex, startIndex + len - 1);
 }
 
-function combineDependencies (depA, depB) {
+function combineDependencies (depA = [], depB = []) {
   const common = [];
   const justA = [];
   const justB = [];

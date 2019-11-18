@@ -1,19 +1,13 @@
-import { useReducer, useRef, useMemo, useCallback, useState, useContext } from 'react';
+import React, { useReducer, useRef, useMemo, useCallback, useState, useContext } from 'react';
+import PropTypes from 'prop-types';
+
 import { FormContext } from '../context';
-import { createErrorGenerator } from '../validators';
 
 const UPDATE = 'UPDATE';
 
-export default function Form ({
-  name,
-  onValidSubmit,
-  onInvalidSubmit,
-  disabled,
-  children,
-  ...moreProps
-}) {
-  const [model, mutateModel] = useReducer(modelReducer);
-  const [valid, mutateValid] = useReducer(validReducer);
+function Form ({ name, onValidSubmit, onInvalidSubmit, disabled, children, ...moreProps }) {
+  const [model, mutateModel] = useReducer(modelReducer, {});
+  const [valid, mutateValid] = useReducer(validReducer, {});
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const formRef = useRef(null);
@@ -24,21 +18,30 @@ export default function Form ({
   ]);
 
   const registerField = useCallback(
-    (name, value, validations, validationErrors, { deferred = false } = {}) => {
-      const { errorGenerator, dependencies } = createErrorGenerator(validations, validationErrors);
+    (name, value, validation, opts = {}) => {
+      const { deferred = false } = opts;
+      const { $id, $dependencies } = validation || {};
+
+      if ($id == null) {
+        throw new Error('Invalid validation, please use useValidation');
+      }
+
       setR(name, {
         initial: value,
-        errorGenerator,
-        deps: dependencies,
+        errorGenerator: validation,
+        deps: $dependencies,
         impacts: [],
         isDeferred: deferred
       });
+
+      if (value != null) mutateModel({ type: UPDATE, name, value });
 
       Object.keys(registry.current).map(key => {
         const registration = getR(key);
         const { impacts = [] } = registration;
         const unique = new Set(impacts);
-        const isDependent = dependencies.includes(key);
+        const { $dependencies = [] } = validation || {};
+        const isDependent = $dependencies.includes(key);
         unique[isDependent ? 'add' : 'delete'](name);
         setR(key, { impacts: [...unique] });
       });
@@ -122,31 +125,45 @@ export default function Form ({
   );
 
   const parentContext = useContext(FormContext);
+  const hasParentContext = parentContext && parentContext.name;
 
   const context = useMemo(
     () =>
-      parentContext
+      hasParentContext
         ? { ...parentContext, name }
         : {
             name,
             registerField,
             model,
+            valid,
             setValue,
             isSubmitted,
             form: formRef,
             validate
           },
-    [isSubmitted, model, name, parentContext, registerField, setValue, validate]
+    [
+      hasParentContext,
+      isSubmitted,
+      model,
+      name,
+      parentContext,
+      registerField,
+      setValue,
+      valid,
+      validate
+    ]
   );
 
   const formProps = useMemo(
     () =>
-      parentContext ? { disabled } : { id: name, name, onSubmit, onReset, disabled, ref: formRef },
-    [disabled, name, onReset, onSubmit, parentContext]
+      hasParentContext
+        ? { disabled }
+        : { id: name, name, onSubmit, onReset, disabled, ref: formRef },
+    [disabled, hasParentContext, name, onReset, onSubmit]
   );
 
   // eslint-disable-next-line no-unused-vars
-  const ConcreteForm = parentContext ? 'fieldset' : 'form';
+  const ConcreteForm = hasParentContext ? 'fieldset' : 'form';
 
   return (
     <FormContext.Provider value={context}>
@@ -157,11 +174,21 @@ export default function Form ({
   );
 }
 
+Form.propTypes = {
+  name: PropTypes.string,
+  onValidSubmit: PropTypes.func,
+  onInvalidSubmit: PropTypes.func,
+  disabled: PropTypes.bool,
+  children: PropTypes.node
+};
+
+export default React.memo(Form);
+
 function modelReducer (state, action) {
   const { type, name, value } = action;
   switch (type) {
     case UPDATE:
-      return { ...state, [name]: value };
+      return state[name] !== value ? { ...state, [name]: value } : state;
     default:
       return state;
   }
@@ -170,8 +197,13 @@ function modelReducer (state, action) {
 function validReducer (state, action) {
   const { type, name, value } = action;
   switch (type) {
-    case UPDATE:
-      return { ...state, [name]: value };
+    case UPDATE: {
+      const current = state[name] || [];
+      if (current.length !== (value || []).length || current.some((v, i) => v !== value[i])) {
+        return { ...state, [name]: value };
+      }
+      return state;
+    }
     default:
       return state;
   }

@@ -1,5 +1,6 @@
 import { useState, useContext, useEffect, useCallback } from 'react';
 import { FormContext } from '../context';
+import { noErrorGenerator } from '../validators';
 
 const noop = () => {};
 
@@ -8,7 +9,7 @@ const noop = () => {};
 
 // validationErrors is an object { [name]: String } and defaults "The value is invalid"
 
-export default (name, value, onChange, opts) => {
+export default (name, value, opts = {}) => {
   const [isPristine, setIsPristine] = useState(true);
   const formContext = useContext(FormContext);
 
@@ -20,20 +21,20 @@ export default (name, value, onChange, opts) => {
     validate
   } = formContext;
 
-  const { validations, validationErrors, deferredValidation } = opts;
-  const [hasError, errorText] = valid[name];
+  const { validation = noErrorGenerator(), deferredValidation, onSetValue } = opts;
+  const [hasError, errorText] = valid[name] || [];
 
   useEffect(() => {
-    registerField(name, value, validations, validationErrors, { deferred: deferredValidation });
-  }, [deferredValidation, name, registerField, validationErrors, validations, value]);
+    registerField(name, value, validation, { deferred: deferredValidation });
+  }, [deferredValidation, name, registerField, validation, value]);
 
   const setFieldValue = useCallback(
     value => {
       setValue(name, value);
       setIsPristine(false);
-      if (onChange) onChange(value);
+      if (onSetValue) onSetValue(value);
     },
-    [name, onChange, setValue]
+    [name, onSetValue, setValue]
   );
 
   const fieldValidate = useCallback(() => validate(name), [name, validate]);
