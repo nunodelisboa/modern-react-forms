@@ -17,9 +17,9 @@ import { Form } from "modern-react-forms";
 
 ```js
 function MyInput({ name, value, onChange, required }) {
-  const [inputValue, setValue, validation] = useFormInput(name, value, onChange, {
+  const [inputValue, setValue, validation] = useFormInput(name, value, onChange,  required ? {
     validations: "isRequired",
-    validationError: { isRequired: "Please specify a value for the input" }
+    validationError: { isRequired: "Please specify a value for the input" } : {}
   });
 
   const [hasError, errorText] = validation;

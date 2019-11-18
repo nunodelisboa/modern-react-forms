@@ -3,7 +3,7 @@ import { FormContext } from '../context';
 
 const noop = () => {};
 
-// validations can be (a) String (name of validation) (b) an object { id, params: [], deferred: true, dependencies: [], validator }, (c) an array of (a) or (b)
+// validations can be (a) String (name of validation) (b) an object { [id] : { params: [], deferred: true, dependencies: [], validator } }
 // (a) Can be "{name}" or  "{name}:{param1}:{param2}"
 
 // validationErrors is an object { [name]: String } and defaults "The value is invalid"
@@ -31,8 +31,9 @@ export default (name, value, onChange, opts) => {
     value => {
       setValue(name, value);
       setIsPristine(false);
+      if (onChange) onChange(value);
     },
-    [name, setValue]
+    [name, onChange, setValue]
   );
 
   const fieldValidate = useCallback(() => validate(name), [name, validate]);

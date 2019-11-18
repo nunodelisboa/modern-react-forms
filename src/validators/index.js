@@ -6,13 +6,19 @@ import * as Validators from './builtIn';
 // validationErrors is an object { [name]: String } and defaults "The value is invalid"
 
 export const createErrorGenerator = (spec, errs) => {
-  if (Array.isArray(spec)) combineErrorGenerators(spec, errs);
   if (typeof spec === 'string') return createStringErrorGenerator(spec, errs);
   if (typeof spec !== 'object') {
     throw new Error('Cannot parse unknown validation specification', spec);
   }
 
-  const { id, params = [], dependencies = [], validator: userValidator } = spec;
+  const errorGenerators = Object.entries(spec).map((key, value) =>
+    createCustomErrorGenerator(key, value, errs)
+  );
+  return combineErrorGenerators(errorGenerators, errs);
+};
+
+function createCustomErrorGenerator (id, spec, errs) {
+  const { params = [], dependencies = [], validator } = spec;
 
   if ([...new Set(dependencies)].length !== dependencies.length) {
     throw new Error('Cannot specify duplicate dependencies');
@@ -20,12 +26,12 @@ export const createErrorGenerator = (spec, errs) => {
 
   return {
     errorGenerator: (value, ...deps) => {
-      const isValid = userValidator(value, params, deps);
+      const isValid = validator(value, params, deps);
       return isValid ? [false] : [true, errs[id]];
     },
     dependencies
   };
-};
+}
 
 function createStringErrorGenerator (spec, errs) {
   const [id, ...params] = spec.split(':');
@@ -39,13 +45,16 @@ function createStringErrorGenerator (spec, errs) {
   };
 }
 
-function combineErrorGenerators (specs, errs) {
-  const [one, ...rest] = specs;
+function combineErrorGenerators (generators, errs) {
+  const [one, ...rest] = generators;
 
-  if (rest.length === 0) return createErrorGenerator(one);
+  if (rest.length === 0) return one;
 
-  const { errorGenerator: errorGeneratorO, dependencies: depO } = createErrorGenerator(one, errs);
-  const { errorGenerator: errorGeneratorR, dependencies: depR } = createErrorGenerator(rest, errs);
+  const { errorGenerator: errorGeneratorO, dependencies: depO } = one;
+  const { errorGenerator: errorGeneratorR, dependencies: depR } = combineErrorGenerators(
+    rest,
+    errs
+  );
 
   const [common, justO, justR] = combineDependencies(depO, depR);
 
